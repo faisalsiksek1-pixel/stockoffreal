@@ -160,7 +160,7 @@ export async function placeOrder(formData: FormData): Promise<OrderResult> {
 }
 
 export type InstrumentDetail =
-  | { ok: true; quote: Quote; history: PricePoint[] }
+  | { ok: true; quote: Quote | null; quoteError: string | null; history: PricePoint[] }
   | { ok: false; error: string };
 
 /**
@@ -176,6 +176,12 @@ export type InstrumentDetail =
  * now works over the static local instrument list (symbol/name only, zero
  * cost); this is the one live-data round trip, deferred until it's actually
  * needed.
+ *
+ * The quote and the chart history are independent failures: history comes
+ * from the local mock walk (see priceHistory's own comment — "regardless of
+ * provider") and cannot fail the way a live Finnhub call can. So a quote
+ * outage still returns the chart rather than hiding it too; only an unknown
+ * symbol is a hard failure here.
  */
 export async function getInstrumentDetail(symbol: string): Promise<InstrumentDetail> {
   const clean = symbol.trim().toUpperCase();
@@ -183,11 +189,14 @@ export async function getInstrumentDetail(symbol: string): Promise<InstrumentDet
     return { ok: false, error: "Unknown symbol." };
   }
 
+  const history = priceHistory(clean, 365);
   const quotes = await marketData().getQuotes([clean]);
-  const quote = quotes.get(clean);
-  if (!quote) {
-    return { ok: false, error: `${clean} is not available right now.` };
-  }
+  const quote = quotes.get(clean) ?? null;
 
-  return { ok: true, quote, history: priceHistory(clean, 365) };
+  return {
+    ok: true,
+    quote,
+    quoteError: quote ? null : `${clean} is not available right now.`,
+    history,
+  };
 }

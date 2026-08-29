@@ -127,8 +127,11 @@ export function TradePanel({
       if (cancelled) return;
       setLoadingQuote(false);
       if (res.ok) {
-        setQuote(res.quote);
+        // History renders regardless of whether the live quote came back —
+        // they're independent (see getInstrumentDetail's comment).
         setHistory(res.history);
+        setQuote(res.quote);
+        setQuoteError(res.quoteError);
       } else {
         setQuoteError(res.error);
       }
