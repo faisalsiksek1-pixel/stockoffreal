@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+/* Deep navy base, off-white type, cobalt accent.
+   The surface ramp stays within one hue so panels read as depth rather than as
+   different materials. Green/red are the only non-blue hues in the system and are
+   reserved strictly for returns, so a colour never means "brand" and "up" at once. */
+@theme {
+  /* Navy ramp: page → card → raised card → hairline */
+  --color-bg: #060b1c;
+  --color-surface: #0c1430;
+  --color-surface-2: #131d42;
+  --color-line: #1f2b54;
+
+  /* Off-white, deliberately not #fff — pure white on navy vibrates */
+  --color-fg: #eaeff9;
+  --color-muted: #8d9dc2;
+
+  /* Returns only */
+  --color-up: #35cf97;
+  --color-down: #f2565c;
+
+  /* Cobalt is the brand accent and belongs to the AI opponent; Market gets a
+     muted steel so the two stay visually distinct without a third hue. */
+  --color-ai: #2f6bff;
+  --color-market: #7c95c4;
+
+  /* Type colour for anything sitting on top of the cobalt accent. Cobalt is dark
+     enough that off-white is the readable choice, where the previous lilac
+     accent needed black. */
+  --color-on-accent: #f4f7fd;
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  /* Micro-label size, below Tailwind's 12px (text-xs) floor — badges, table
+     heads, tab labels. The one place this app legitimately needs sub-xs
+     type; everything else should reach for text-xs or larger. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+}
+
+/* Radius — one job per value, not a free choice per component:
+     rounded-full   circles/pills (avatar, nav indicators, "live" dot)
+     rounded-2xl    surfaces (cards, list/table wrappers)
+     rounded-xl     standalone controls (buttons, inputs, alerts, dropdowns)
+     rounded-lg/md  the nested pair inside a segmented control, only
+   Font weight — a deliberate ladder, not "bold by default":
+     normal    body copy, paragraphs, table cell values
+     medium    form labels, nav links, secondary inline links
+     semibold  badges, uppercase micro-labels, identifiers (symbols, ranks)
+     bold/extrabold  page headings and the single hero figure per screen —
+                      nothing else */
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  /* Bottom nav is fixed; keep content clear of it on mobile. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Tabular figures everywhere money appears, so digits do not jitter as values
+   update. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-rise { animation: rise 0.28s ease-out both; }
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+/* Ticker strip scrolls two copies of the same list; -50% is exactly one copy. */
+.animate-marquee { animation: marquee 32s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise { animation: none; }
+  .animate-marquee { animation: none; }
+}
+
+/* Faint trading-terminal grid, masked so it fades before it competes with copy. */
+.bg-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-line) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-line) 70%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, black 30%, transparent 100%);
+}
+
+/* Two soft colour blooms behind the hero — cobalt for brand, green for "up" —
+   the only decoration allowed to break the single-hue surface ramp. */
+.hero-glow {
+  background:
+    radial-gradient(42% 55% at 12% 0%, color-mix(in srgb, var(--color-ai) 26%, transparent), transparent 70%),
+    radial-gradient(38% 45% at 100% 8%, color-mix(in srgb, var(--color-up) 16%, transparent), transparent 70%);
+}
+
+::selection { background: color-mix(in srgb, var(--color-ai) 35%, transparent); }
