@@ -26,8 +26,10 @@ export default async function PortfolioPage() {
   const portfolio = await getMyPortfolio(resolved.leagueId);
   if (!portfolio) redirect("/welcome");
 
-  const trades = await getRecentTrades(portfolio.id, 100);
-  const equityHistory = await getEquityHistory(portfolio.id);
+  const [trades, equityHistory] = await Promise.all([
+    getRecentTrades(portfolio.id, 100),
+    getEquityHistory(portfolio.id),
+  ]);
 
   return (
     <div className="space-y-6">

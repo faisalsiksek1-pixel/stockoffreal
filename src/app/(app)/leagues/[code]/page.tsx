@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 
 import { CopyButton } from "@/components/CopyButton";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
@@ -78,16 +79,15 @@ export default async function LeaguePage({
   ]);
 
   const [messages, profile, myTeams] = mine
-    ? await Promise.all([
-        getLeagueMessages(league.id),
-        getMyProfile(),
-        getMyTeams(league.id),
-        // Loading this page IS "you saw the chat" — same side-effect-of-the-
-        // page-load idiom fillDueOrders uses for limit orders. Only for
-        // confirmed members; a non-member has nothing to mark read anyway.
-        markChatRead(league.id),
-      ])
+    ? await Promise.all([getLeagueMessages(league.id), getMyProfile(), getMyTeams(league.id)])
     : [[] as ChatMessage[], null, []];
+
+  // Loading this page IS "you saw the chat" — same side-effect-of-the-
+  // page-load idiom fillDueOrders uses for limit orders. Only for confirmed
+  // members; a non-member has nothing to mark read anyway. Deferred via
+  // after(): its result is never used by the render, so it shouldn't block
+  // the response.
+  if (mine) after(() => markChatRead(league.id));
 
   const teamStandings = rankTeams(rows.filter((r) => r.ownerType === "user"));
   const isCreator = mine !== null && profile?.id === league.created_by;

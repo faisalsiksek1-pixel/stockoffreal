@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
 import { CompetitorCard } from "@/components/CompetitorCard";
@@ -11,7 +12,7 @@ import { Empty } from "@/components/ui/Empty";
 import { Stat } from "@/components/ui/Stat";
 import { resolveCompetition } from "@/lib/competition";
 import { money, moneyShort, percent } from "@/lib/format";
-import { checkRankChange } from "@/lib/notifications";
+import { getRankChange, recordRankSeen } from "@/lib/notifications";
 import { fillDueOrders } from "@/lib/orders";
 import { getLeaderboard, getMyPortfolio, getRecentTrades, getSpecialCompetitors } from "@/lib/queries";
 import { findRank } from "@/lib/portfolio";
@@ -34,8 +35,11 @@ export default async function DashboardPage() {
 
   // Real daily history, not the trade-log reconstruction the portfolio page
   // used to show — recorded here the same "checked on your next visit" way
-  // rank changes and due orders already are.
-  await recordDailySnapshot(portfolio.id, portfolio.totalValue, portfolio.totalReturnPct);
+  // rank changes and due orders already are. Deferred via after(): nothing
+  // rendered on this page depends on this write finishing, so it shouldn't
+  // block the response (the value it records simply appears starting next
+  // visit, same as any other day with no visit — see 0012's header).
+  after(() => recordDailySnapshot(portfolio.id, portfolio.totalValue, portfolio.totalReturnPct));
 
   // Fetched together: the dashboard is the one page that needs everything, and
   // these are independent queries.
@@ -47,9 +51,10 @@ export default async function DashboardPage() {
 
   // Same "checked on your next visit" recording as the viewer's own
   // portfolio above, just on the caller's behalf — AI/Market have no owning
-  // user to log the visit as (see 0014_competitor_snapshots.sql).
-  await Promise.all(
-    competitors.map((c) => recordCompetitorSnapshot(c.id, c.totalValue, c.totalReturnPct)),
+  // user to log the visit as (see 0014_competitor_snapshots.sql). Deferred
+  // via after() for the same reason as recordDailySnapshot above.
+  after(() =>
+    Promise.all(competitors.map((c) => recordCompetitorSnapshot(c.id, c.totalValue, c.totalReturnPct))),
   );
   const raceHistory = await getReturnHistories([portfolio.id, ...competitors.map((c) => c.id)]);
   const raceSeries: RaceSeries[] = [portfolio, ...competitors].map((p) => ({
@@ -62,9 +67,12 @@ export default async function DashboardPage() {
   const rank = findRank(rows, portfolio.id);
   const current = competitions.find((c) => c.id === leagueId);
 
-  // Compares against (and then records) the rank last seen on this dashboard
-  // — a lightweight "you moved since last visit" indicator, no push/cron.
-  const rankDelta = await checkRankChange(leagueId, rank);
+  // Compares against the rank last seen on this dashboard — a lightweight
+  // "you moved since last visit" indicator, no push/cron. Recording the new
+  // rank for next time is deferred via after(): the read is what this
+  // render needs, the write isn't.
+  const rankDelta = await getRankChange(leagueId, rank);
+  after(() => recordRankSeen(leagueId, rank));
 
   return (
     <div className="space-y-6">

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 /** Request-scoped client that respects the signed-in user and RLS. */
 export async function createClient() {
@@ -25,6 +26,25 @@ export async function createClient() {
     },
   );
 }
+
+/** The signed-in user, memoized for the lifetime of one request's render.
+ *  Every page-load helper that needs "who is this" (fillDueOrders,
+ *  getMyPortfolio, getMyCompetitions, getMyProfile, checkRankChange,
+ *  markChatRead) independently called supabase.auth.getUser() — a real
+ *  network round trip to Supabase Auth, not a local cookie read — so a
+ *  single dashboard load paid for it 5-6 times over. cache() collapses
+ *  that to one call per request; only the middleware's own getUser() (a
+ *  separate Edge execution, before this render tree even starts) is
+ *  outside its reach, and that one stays as-is deliberately: Supabase's
+ *  own guidance is to use getUser() rather than the unverified getSession()
+ *  for exactly this route-gating job. */
+export const getCurrentUser = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});
 
 /**
  * Service-role client. Bypasses RLS entirely, so it is only for trusted

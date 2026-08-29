@@ -24,12 +24,14 @@ export default async function TradePage() {
   const portfolio = await getMyPortfolio(resolved.leagueId);
   if (!portfolio) redirect("/welcome");
 
-  const pendingOrders = await getPendingOrders(portfolio.id);
-
   // The tradeable universe is curated and small, so quoting all of it up front
-  // makes search instant with no per-keystroke round trip.
+  // makes search instant with no per-keystroke round trip. Independent of
+  // pending orders, so fetched together rather than one after the other.
   const symbols = INSTRUMENTS.map((i) => i.symbol);
-  const quotes = await getQuotes(symbols);
+  const [pendingOrders, quotes] = await Promise.all([
+    getPendingOrders(portfolio.id),
+    getQuotes(symbols),
+  ]);
   const instruments = symbols
     .map((s) => quotes.get(s))
     .filter((q): q is NonNullable<typeof q> => Boolean(q));

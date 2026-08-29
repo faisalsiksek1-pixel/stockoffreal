@@ -1,7 +1,7 @@
 import { marketData } from "@/lib/market";
 import { shortLiability } from "@/lib/portfolio";
 import { resolveOrder } from "@/lib/trade-rules";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import type { TradeSide } from "@/lib/types";
 
 /**
@@ -23,12 +23,10 @@ import type { TradeSide } from "@/lib/types";
  * its own row lock and re-reads live cash, so nothing can be double-spent.
  */
 export async function fillDueOrders(leagueId: string): Promise<void> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
+  const supabase = await createClient();
   const { data: portfolio } = await supabase
     .from("portfolios")
     .select("id, cash")

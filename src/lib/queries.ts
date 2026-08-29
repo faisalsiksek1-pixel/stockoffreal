@@ -1,5 +1,5 @@
 import { marketData } from "@/lib/market";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { rankPortfolios, valuePortfolio, type PortfolioInput } from "@/lib/portfolio";
 import type {
   ChatMessage,
@@ -75,12 +75,10 @@ export async function getQuotes(symbols: string[]): Promise<Map<string, Quote>> 
 /** The caller's portfolio in one specific competition — each competition is
  *  an independent portfolio, so this always needs to know which one. */
 export async function getMyPortfolio(leagueId: string): Promise<ValuedPortfolio | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data } = await supabase
     .from("portfolios")
     .select(SELECT_PORTFOLIO)
@@ -219,12 +217,10 @@ export async function getRecentTrades(portfolioId: string, limit = 20): Promise<
  * portfolio `created_at` puts it first every time.
  */
 export async function getMyCompetitions() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return [];
 
+  const supabase = await createClient();
   const { data } = await supabase
     .from("portfolios")
     .select("created_at, leagues!inner(id, name, code, is_public)")
@@ -294,12 +290,10 @@ export async function getLeagueMessages(
 }
 
 export async function getMyProfile() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
     .select("id, username, is_admin")

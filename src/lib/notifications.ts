@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 
 /**
  * In-app indicators, computed on page load — no push, no background job.
@@ -29,12 +29,10 @@ export async function getUnreadChatCounts(leagueIds: string[]): Promise<Map<stri
  *  touches last_read_at: last_seen_rank is deliberately left out of the
  *  upsert payload so a conflict never overwrites it. */
 export async function markChatRead(leagueId: string): Promise<void> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
+  const supabase = await createClient();
   const now = new Date().toISOString();
   await supabase
     .from("league_visits")
@@ -45,21 +43,22 @@ export async function markChatRead(leagueId: string): Promise<void> {
 }
 
 /**
- * Compares currentRank against the rank last recorded for this league, then
- * records currentRank for next time. Returns null on a first-ever visit
- * (nothing to compare against yet) or when currentRank itself is null (no
- * ranked position). Positive means improved (moved to a lower/better rank
- * number), negative means dropped.
+ * What to show right now: currentRank vs. the rank last recorded for this
+ * league. Returns null on a first-ever visit (nothing to compare against
+ * yet) or when currentRank itself is null (no ranked position). Positive
+ * means improved (moved to a lower/better rank number), negative means
+ * dropped.
+ *
+ * Read-only — call recordRankSeen separately (typically via after(), so the
+ * write doesn't block the response) to persist currentRank for next time.
  */
-export async function checkRankChange(leagueId: string, currentRank: number | null): Promise<number | null> {
+export async function getRankChange(leagueId: string, currentRank: number | null): Promise<number | null> {
   if (currentRank === null) return null;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: visit } = await supabase
     .from("league_visits")
     .select("last_seen_rank")
@@ -68,7 +67,20 @@ export async function checkRankChange(leagueId: string, currentRank: number | nu
     .maybeSingle();
 
   const previousRank = visit?.last_seen_rank ?? null;
+  if (previousRank === null) return null;
+  return previousRank - currentRank;
+}
 
+/** Records currentRank as "last seen", for the next visit's comparison via
+ *  getRankChange. Its result is never displayed, so nothing should block
+ *  the response on it — call via after(). */
+export async function recordRankSeen(leagueId: string, currentRank: number | null): Promise<void> {
+  if (currentRank === null) return;
+
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const supabase = await createClient();
   await supabase
     .from("league_visits")
     .upsert(
@@ -80,7 +92,4 @@ export async function checkRankChange(leagueId: string, currentRank: number | nu
       },
       { onConflict: "profile_id,league_id" },
     );
-
-  if (previousRank === null) return null;
-  return previousRank - currentRank;
 }
