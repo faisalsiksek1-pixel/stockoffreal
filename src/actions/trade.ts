@@ -3,11 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import type { PricePoint } from "@/components/PriceChart";
 import { resolveCompetition } from "@/lib/competition";
-import { marketData } from "@/lib/market";
+import { marketData, priceHistory } from "@/lib/market";
+import { INSTRUMENT_BY_SYMBOL } from "@/lib/market/instruments";
 import { shortLiability } from "@/lib/portfolio";
 import { DEFAULT_LEVERAGE, LEVERAGE_OPTIONS, resolveOrder } from "@/lib/trade-rules";
 import { createClient } from "@/lib/supabase/server";
+import type { Quote } from "@/lib/types";
 
 /**
  * Order submission.
@@ -154,4 +157,37 @@ export async function placeOrder(formData: FormData): Promise<OrderResult> {
     ok: true,
     message: `${verb} ${check.shares} ${symbol} at $${quote.price.toFixed(2)} for $${check.amount.toFixed(2)} total.`,
   };
+}
+
+export type InstrumentDetail =
+  | { ok: true; quote: Quote; history: PricePoint[] }
+  | { ok: false; error: string };
+
+/**
+ * A live quote + a year of price history for one symbol, fetched only once a
+ * user actually selects a stock to trade.
+ *
+ * The trade page used to fetch this for the entire ~100-symbol tradeable
+ * universe up front, so search would never need a round trip. That was fine
+ * against the mock provider (free, instant, unlimited) but became the
+ * dominant cost once MARKET_DATA_PROVIDER=finnhub: Finnhub's free tier has no
+ * batch endpoint and a real rate limit, so 100 concurrent quote requests on
+ * every trade-page load both blew past it and was slow regardless. Search
+ * now works over the static local instrument list (symbol/name only, zero
+ * cost); this is the one live-data round trip, deferred until it's actually
+ * needed.
+ */
+export async function getInstrumentDetail(symbol: string): Promise<InstrumentDetail> {
+  const clean = symbol.trim().toUpperCase();
+  if (!INSTRUMENT_BY_SYMBOL.has(clean)) {
+    return { ok: false, error: "Unknown symbol." };
+  }
+
+  const quotes = await marketData().getQuotes([clean]);
+  const quote = quotes.get(clean);
+  if (!quote) {
+    return { ok: false, error: `${clean} is not available right now.` };
+  }
+
+  return { ok: true, quote, history: priceHistory(clean, 365) };
 }

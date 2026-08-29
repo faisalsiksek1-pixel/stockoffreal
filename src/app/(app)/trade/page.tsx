@@ -1,14 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { PendingOrders } from "@/components/PendingOrders";
-import type { PricePoint } from "@/components/PriceChart";
 import { TradePanel } from "@/components/TradePanel";
 import { PageHeading } from "@/components/ui/PageHeading";
 import { resolveCompetition } from "@/lib/competition";
-import { INSTRUMENTS, priceHistory } from "@/lib/market";
+import { INSTRUMENTS } from "@/lib/market";
 import { money } from "@/lib/format";
 import { fillDueOrders } from "@/lib/orders";
-import { getMyPortfolio, getPendingOrders, getQuotes } from "@/lib/queries";
+import { getMyPortfolio, getPendingOrders } from "@/lib/queries";
 
 export const metadata = { title: "Trade - StockOff" };
 export const dynamic = "force-dynamic";
@@ -24,24 +23,7 @@ export default async function TradePage() {
   const portfolio = await getMyPortfolio(resolved.leagueId);
   if (!portfolio) redirect("/welcome");
 
-  // The tradeable universe is curated and small, so quoting all of it up front
-  // makes search instant with no per-keystroke round trip. Independent of
-  // pending orders, so fetched together rather than one after the other.
-  const symbols = INSTRUMENTS.map((i) => i.symbol);
-  const [pendingOrders, quotes] = await Promise.all([
-    getPendingOrders(portfolio.id),
-    getQuotes(symbols),
-  ]);
-  const instruments = symbols
-    .map((s) => quotes.get(s))
-    .filter((q): q is NonNullable<typeof q> => Boolean(q));
-
-  // A full year up front, not just the visible range: the chart's 1W/1M/3M/1Y
-  // toggle slices this client-side, so switching ranges never re-fetches.
-  const historyBySymbol: Record<string, PricePoint[]> = {};
-  for (const s of symbols) {
-    historyBySymbol[s] = priceHistory(s, 365);
-  }
+  const pendingOrders = await getPendingOrders(portfolio.id);
 
   return (
     <div className="space-y-5">
@@ -58,8 +40,7 @@ export default async function TradePage() {
           shares: h.shares,
           avgCost: h.avgCost,
         }))}
-        instruments={instruments}
-        historyBySymbol={historyBySymbol}
+        instruments={INSTRUMENTS}
       />
 
       <PendingOrders orders={pendingOrders} />

@@ -4,13 +4,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { placeLimitOrder } from "@/actions/orders";
-import { placeOrder } from "@/actions/trade";
+import { getInstrumentDetail, placeOrder } from "@/actions/trade";
 import { PriceChart, type PricePoint } from "@/components/PriceChart";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { money, percent, shares as fmtShares, toneClass } from "@/lib/format";
+import type { Instrument } from "@/lib/market/instruments";
 import { shortLiability } from "@/lib/portfolio";
 import { DEFAULT_LEVERAGE, LEVERAGE_OPTIONS, resolveOrder, type Leverage } from "@/lib/trade-rules";
 import type { Holding, Quote, TradeSide } from "@/lib/types";
@@ -42,8 +43,7 @@ interface Props {
   cash: number;
   availableCash: number;
   holdings: Holding[];
-  instruments: Quote[];
-  historyBySymbol: Record<string, PricePoint[]>;
+  instruments: Instrument[];
 }
 
 export function TradePanel({
@@ -51,10 +51,16 @@ export function TradePanel({
   availableCash,
   holdings,
   instruments,
-  historyBySymbol,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Quote | null>(null);
+  // Known the instant a search result is clicked (it's local, static data);
+  // the live quote + chart history load separately below, since that's the
+  // one round trip this component makes.
+  const [selected, setSelected] = useState<Instrument | null>(null);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [history, setHistory] = useState<PricePoint[]>([]);
+  const [loadingQuote, setLoadingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [side, setSide] = useState<TradeSide>("buy");
   const [mode, setMode] = useState<"dollars" | "shares">("dollars");
   const [amount, setAmount] = useState("");
@@ -91,13 +97,46 @@ export function TradePanel({
     return instruments
       .filter((i) => i.symbol.includes(q) || i.name.toUpperCase().includes(q))
       .sort((a, b) => {
-        const score = (i: Quote) => (i.symbol === q ? 0 : i.symbol.startsWith(q) ? 1 : 2);
+        const score = (i: Instrument) => (i.symbol === q ? 0 : i.symbol.startsWith(q) ? 1 : 2);
         return score(a) - score(b) || a.symbol.localeCompare(b.symbol);
       })
       .slice(0, 8);
   }, [query, instruments]);
 
   const held = selected ? holdingBySymbol.get(selected.symbol) : undefined;
+
+  // The one live-data round trip in this component, deferred until a stock
+  // is actually selected (see getInstrumentDetail's comment for why).
+  // retryTick has no meaning beyond "changed" — bumping it re-runs the fetch
+  // below without needing a new `selected` reference for the retry button.
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => {
+    if (!selected) {
+      setQuote(null);
+      setHistory([]);
+      setQuoteError(null);
+      return;
+    }
+    let cancelled = false;
+    setQuote(null);
+    setHistory([]);
+    setQuoteError(null);
+    setLoadingQuote(true);
+    getInstrumentDetail(selected.symbol).then((res) => {
+      if (cancelled) return;
+      setLoadingQuote(false);
+      if (res.ok) {
+        setQuote(res.quote);
+        setHistory(res.history);
+      } else {
+        setQuoteError(res.error);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, retryTick]);
 
   // What the two toggle buttons show depends on the current position: flat
   // can open long or short, long can only add or close long, short can only
@@ -116,10 +155,10 @@ export function TradePanel({
   }, [orderType, side]);
 
   const dayChange = useMemo(() => {
-    if (!selected?.prevClose) return null;
-    const amount = selected.price - selected.prevClose;
-    return { amount, pct: amount / selected.prevClose };
-  }, [selected]);
+    if (!quote?.prevClose) return null;
+    const amount = quote.price - quote.prevClose;
+    return { amount, pct: amount / quote.prevClose };
+  }, [quote]);
 
   const isLimit = orderType === "limit";
   const target = Number(targetPrice);
@@ -130,10 +169,13 @@ export function TradePanel({
   // ever fill at or below it, a sell at or above it, so if this preview is
   // affordable now, the eventual fill only ever looks better, not worse
   // (unless cash moves between now and then).
-  const previewPrice = isLimit ? target : selected?.price;
+  const previewPrice = isLimit ? target : quote?.price;
 
   const preview = useMemo(() => {
     if (!selected) return null;
+    // Can't preview or submit without a real price — still loading, or the
+    // quote fetch failed.
+    if (!isLimit && !quote) return null;
     if (isLimit && !validTarget) return null;
     const value = Number(amount);
     if (!amount || !Number.isFinite(value) || value <= 0) return null;
@@ -152,6 +194,7 @@ export function TradePanel({
     );
   }, [
     selected,
+    quote,
     amount,
     side,
     mode,
@@ -238,36 +281,24 @@ export function TradePanel({
 
         {matches.length > 0 ? (
           <ul className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-            {matches.map((m) => {
-              const change = m.prevClose ? (m.price - m.prevClose) / m.prevClose : 0;
-              return (
-                <li key={m.symbol}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelected(m);
-                      setQuery("");
-                      setResult(null);
-                    }}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-surface-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold">{m.symbol}</div>
-                      <div className="truncate text-xs text-muted">{m.name}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="tnum text-sm font-semibold">{money(m.price)}</div>
-                      <div
-                        className={`tnum text-xs ${change >= 0 ? "text-up" : "text-down"}`}
-                      >
-                        {change >= 0 ? "+" : ""}
-                        {(change * 100).toFixed(2)}%
-                      </div>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {matches.map((m) => (
+              <li key={m.symbol}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(m);
+                    setQuery("");
+                    setResult(null);
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-surface-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold">{m.symbol}</div>
+                    <div className="truncate text-xs text-muted">{m.name}</div>
+                  </div>
+                </button>
+              </li>
+            ))}
           </ul>
         ) : null}
       </div>
@@ -280,7 +311,11 @@ export function TradePanel({
               <div className="text-sm text-muted">{selected.name}</div>
             </div>
             <div className="text-right">
-              <div className="tnum text-xl font-semibold">{money(selected.price)}</div>
+              {loadingQuote ? (
+                <div className="text-sm text-muted">Loading price…</div>
+              ) : quote ? (
+                <div className="tnum text-xl font-semibold">{money(quote.price)}</div>
+              ) : null}
               {dayChange ? (
                 <div className={`tnum text-xs font-medium ${toneClass(dayChange.amount)}`}>
                   {dayChange.amount >= 0 ? "+" : ""}
@@ -297,7 +332,20 @@ export function TradePanel({
             </div>
           </div>
 
-          <PriceChart history={historyBySymbol[selected.symbol] ?? []} />
+          {quoteError ? (
+            <Alert kind="error">
+              {quoteError}{" "}
+              <button
+                type="button"
+                onClick={() => setRetryTick((n) => n + 1)}
+                className="font-semibold underline"
+              >
+                Try again
+              </button>
+            </Alert>
+          ) : null}
+
+          <PriceChart history={history} />
 
           <div className="grid grid-cols-2 gap-2">
             {sideOptions.map((s) => (
@@ -363,7 +411,7 @@ export function TradePanel({
                   setTargetPrice(e.target.value);
                   setResult(null);
                 }}
-                placeholder={selected.price.toFixed(2)}
+                placeholder={quote ? quote.price.toFixed(2) : "0.00"}
               />
               <p className="mt-1.5 text-xs text-muted">
                 {side === "buy"
@@ -492,7 +540,11 @@ export function TradePanel({
                   : `${SIDE_LABEL[side]} ${selected.symbol}`
                 : isLimit && !validTarget
                   ? "Enter a trigger price"
-                  : "Enter an amount"}
+                  : !isLimit && loadingQuote
+                    ? "Loading price…"
+                    : !isLimit && quoteError
+                      ? "Price unavailable"
+                      : "Enter an amount"}
           </Button>
 
           {result ? (
