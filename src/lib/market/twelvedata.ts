@@ -17,7 +17,10 @@ export async function fetchDailyHistory(
   try {
     const res = await fetch(
       `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=${days}&apikey=${apiKey}`,
-      { next: { revalidate: 86_400 } },
+      // A slow or hung request must never stall the trade page — 4s is well
+      // past Twelve Data's normal response time, and a timeout just falls
+      // back to the mock walk like any other failure here.
+      { next: { revalidate: 86_400 }, signal: AbortSignal.timeout(4_000) },
     );
     if (!res.ok) return null;
 
