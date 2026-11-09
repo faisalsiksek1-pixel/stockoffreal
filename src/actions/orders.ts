@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { resolveCompetition } from "@/lib/competition";
 import { marketData } from "@/lib/market";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { DEFAULT_LEVERAGE, LEVERAGE_OPTIONS } from "@/lib/trade-rules";
 
 /**
@@ -57,15 +57,15 @@ export async function placeLimitOrder(formData: FormData): Promise<OrderActionRe
   }
   const { symbol, side, mode, quantity, targetPrice, leverage } = parsed.data;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sign in to trade." };
 
+  // resolveCompetition's own getCurrentUser() call is a cache hit here, not
+  // a second Supabase Auth round trip.
   const resolved = await resolveCompetition();
   if (!resolved) return { ok: false, error: "You do not have a portfolio yet." };
 
+  const supabase = await createClient();
   const { data: portfolio } = await supabase
     .from("portfolios")
     .select("id")

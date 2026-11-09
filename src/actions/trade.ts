@@ -9,7 +9,7 @@ import { marketData, priceHistory } from "@/lib/market";
 import { INSTRUMENT_BY_SYMBOL } from "@/lib/market/instruments";
 import { shortLiability } from "@/lib/portfolio";
 import { DEFAULT_LEVERAGE, LEVERAGE_OPTIONS, resolveOrder } from "@/lib/trade-rules";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import type { Quote } from "@/lib/types";
 
 /**
@@ -68,18 +68,17 @@ export async function placeOrder(formData: FormData): Promise<OrderResult> {
   }
   const { symbol, side, mode, quantity, leverage } = parsed.data;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sign in to trade." };
 
   // Each competition is an independent portfolio, so this order has to be
   // placed against whichever one the trade page currently has selected —
-  // same cookie the dashboard switcher writes.
+  // same cookie the dashboard switcher writes. resolveCompetition's own
+  // getCurrentUser() call is a cache hit here, not a second round trip.
   const resolved = await resolveCompetition();
   if (!resolved) return { ok: false, error: "You do not have a portfolio yet." };
 
+  const supabase = await createClient();
   const { data: portfolio } = await supabase
     .from("portfolios")
     .select("id, cash")
@@ -182,16 +181,27 @@ export type InstrumentDetail =
  * provider") and cannot fail the way a live Finnhub call can. So a quote
  * outage still returns the chart rather than hiding it too; only an unknown
  * symbol is a hard failure here.
+ *
+ * Requires sign-in: a server action's id is reachable directly, independent
+ * of page-level route gating, so without this an anonymous caller could loop
+ * every symbol and reproduce the exact Finnhub rate-limit exhaustion commit
+ * c79cea0 was written to avoid, just from a public route instead of /trade.
  */
 export async function getInstrumentDetail(symbol: string): Promise<InstrumentDetail> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sign in to trade." };
+
   const clean = symbol.trim().toUpperCase();
   if (!INSTRUMENT_BY_SYMBOL.has(clean)) {
     return { ok: false, error: "Unknown symbol." };
   }
 
+  // Quote fetch kicked off before, not after, the local history walk — the
+  // network request is in flight while that CPU work runs, instead of
+  // paying for both back to back.
+  const quotesPromise = marketData().getQuotes([clean]);
   const history = priceHistory(clean, 365);
-  const quotes = await marketData().getQuotes([clean]);
-  const quote = quotes.get(clean) ?? null;
+  const quote = (await quotesPromise).get(clean) ?? null;
 
   return {
     ok: true,

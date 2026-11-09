@@ -123,19 +123,29 @@ export function TradePanel({
     setHistory([]);
     setQuoteError(null);
     setLoadingQuote(true);
-    getInstrumentDetail(selected.symbol).then((res) => {
-      if (cancelled) return;
-      setLoadingQuote(false);
-      if (res.ok) {
-        // History renders regardless of whether the live quote came back —
-        // they're independent (see getInstrumentDetail's comment).
-        setHistory(res.history);
-        setQuote(res.quote);
-        setQuoteError(res.quoteError);
-      } else {
-        setQuoteError(res.error);
-      }
-    });
+    getInstrumentDetail(selected.symbol)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          // History renders regardless of whether the live quote came back —
+          // they're independent (see getInstrumentDetail's comment).
+          setHistory(res.history);
+          setQuote(res.quote);
+          setQuoteError(res.quoteError);
+        } else {
+          setQuoteError(res.error);
+        }
+      })
+      .catch(() => {
+        // A rejected server-action call (network blip, aborted request) must
+        // still clear the loading state — otherwise it hangs on "Loading
+        // price…" forever with no way to retry, since the retry link only
+        // renders once quoteError is set.
+        if (!cancelled) setQuoteError("Could not load this stock. Try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingQuote(false);
+      });
     return () => {
       cancelled = true;
     };

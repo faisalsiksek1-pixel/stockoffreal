@@ -10,8 +10,11 @@ export function money(value: number, dp = 2): string {
 /** Compact form for big headline numbers on narrow screens. */
 export function moneyShort(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (abs >= 10_000) return `$${Math.round(value).toLocaleString("en-US")}`;
+  const sign = value < 0 ? "-" : "";
+  // Leveraged positions let cash go negative (margin debt) — the sign has to
+  // go before the $, not between it and the digits ("$-2.00M").
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 10_000) return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
   return money(value);
 }
 
@@ -20,7 +23,10 @@ export function percent(value: number, dp = 2): string {
 }
 
 export function shares(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/0+$/, "");
+  // Strips the decimal point too when every fractional digit is a trailing
+  // zero (e.g. floating-point drift landing a share count at 9.999999 =>
+  // "10.0000") — a bare /0+$/ left a dangling "10." behind.
+  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/\.?0+$/, "");
 }
 
 /** Short local clock time for a chat row — deliberately absolute, not
