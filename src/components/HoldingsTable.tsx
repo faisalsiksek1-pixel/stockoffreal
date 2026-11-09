@@ -1,5 +1,6 @@
 import { money, percent, shares as fmtShares, toneClass } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
+import { HoldingSellForm } from "@/components/HoldingSellForm";
 import type { ValuedHolding } from "@/lib/types";
 
 /**
@@ -50,8 +51,11 @@ export function HoldingsTable({ holdings }: { holdings: ValuedHolding[] }) {
                 <dd className="tnum">{money(h.price)}</dd>
               </div>
             </dl>
-            <div className="mt-2 text-xs text-muted">
-              {(Math.abs(h.weight) * 100).toFixed(1)}% of portfolio
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="text-xs text-muted">
+                {(Math.abs(h.weight) * 100).toFixed(1)}% of portfolio
+              </div>
+              <HoldingSellForm symbol={h.symbol} shares={Math.abs(h.shares)} isShort={h.isShort} />
             </div>
           </li>
         ))}
@@ -68,6 +72,7 @@ export function HoldingsTable({ holdings }: { holdings: ValuedHolding[] }) {
               <th className="px-4 py-3 text-right font-semibold">Value</th>
               <th className="px-4 py-3 text-right font-semibold">P/L</th>
               <th className="px-4 py-3 text-right font-semibold">Weight</th>
+              <th className="px-4 py-3 text-right font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="bg-surface">
@@ -92,6 +97,9 @@ export function HoldingsTable({ holdings }: { holdings: ValuedHolding[] }) {
                 </td>
                 <td className="tnum px-4 py-3 text-right text-muted">
                   {(Math.abs(h.weight) * 100).toFixed(1)}%
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <HoldingSellForm symbol={h.symbol} shares={Math.abs(h.shares)} isShort={h.isShort} />
                 </td>
               </tr>
             ))}
