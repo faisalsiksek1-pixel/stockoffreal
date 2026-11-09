@@ -176,11 +176,11 @@ export type InstrumentDetail =
  * cost); this is the one live-data round trip, deferred until it's actually
  * needed.
  *
- * The quote and the chart history are independent failures: history comes
- * from the local mock walk (see priceHistory's own comment — "regardless of
- * provider") and cannot fail the way a live Finnhub call can. So a quote
- * outage still returns the chart rather than hiding it too; only an unknown
- * symbol is a hard failure here.
+ * The quote and the chart history are independent failures: history falls
+ * back to the local mock walk if TWELVE_DATA_API_KEY is unset or its fetch
+ * fails (see priceHistory), so it can't fail the way a live Finnhub call
+ * can. A quote outage still returns a chart rather than hiding it too; only
+ * an unknown symbol is a hard failure here.
  *
  * Requires sign-in: a server action's id is reachable directly, independent
  * of page-level route gating, so without this an anonymous caller could loop
@@ -196,12 +196,13 @@ export async function getInstrumentDetail(symbol: string): Promise<InstrumentDet
     return { ok: false, error: "Unknown symbol." };
   }
 
-  // Quote fetch kicked off before, not after, the local history walk — the
-  // network request is in flight while that CPU work runs, instead of
-  // paying for both back to back.
-  const quotesPromise = marketData().getQuotes([clean]);
-  const history = priceHistory(clean, 365);
-  const quote = (await quotesPromise).get(clean) ?? null;
+  // Both are network fetches now (history may hit Twelve Data), so they run
+  // concurrently rather than one blocking the other.
+  const [quotes, history] = await Promise.all([
+    marketData().getQuotes([clean]),
+    priceHistory(clean, 365),
+  ]);
+  const quote = quotes.get(clean) ?? null;
 
   return {
     ok: true,

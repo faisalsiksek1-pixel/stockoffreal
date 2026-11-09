@@ -1,6 +1,7 @@
 import { FinnhubProvider } from "./finnhub";
 import { MockProvider } from "./mock";
 import type { MarketDataProvider } from "./provider";
+import { fetchDailyHistory } from "./twelvedata";
 
 export type { MarketDataProvider } from "./provider";
 export { BENCHMARK_SYMBOL, INSTRUMENTS } from "./instruments";
@@ -32,8 +33,14 @@ export function marketData(): MarketDataProvider {
   return cached;
 }
 
-/** Sparklines come from the mock walk regardless of provider: the free tiers of
- *  most vendors do not include candles, and a chart is nice-to-have. */
-export function priceHistory(symbol: string, days = 30) {
+/** Real daily history when TWELVE_DATA_API_KEY is set (see twelvedata.ts);
+ *  falls back to the mock walk otherwise, or if the real fetch fails — a
+ *  chart is nice-to-have, never worth failing the page over. */
+export async function priceHistory(symbol: string, days = 30) {
+  const key = process.env.TWELVE_DATA_API_KEY;
+  if (key) {
+    const real = await fetchDailyHistory(symbol, days, key);
+    if (real && real.length >= 2) return real;
+  }
   return new MockProvider().history(symbol, days);
 }
