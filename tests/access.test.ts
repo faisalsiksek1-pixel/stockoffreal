@@ -328,6 +328,40 @@ describe("rpc contract", () => {
   });
 });
 
+describe("trusted-header auth shortcut", () => {
+  // getCurrentUser() skips a second auth.getUser() round trip by trusting a
+  // request header middleware sets after its own verified call. That is only
+  // safe if a client can never set that header itself — these pin the two
+  // properties that make it safe, so neither can silently regress.
+  const middleware = read("src/middleware.ts");
+  const server = read("src/lib/supabase/server.ts");
+
+  it("uses the same header name in both files", () => {
+    const headerName = middleware.match(/TRUSTED_USER_HEADER = "([^"]+)"/)?.[1];
+    expect(headerName).toBeTruthy();
+    expect(server).toContain(`TRUSTED_USER_HEADER = "${headerName}"`);
+  });
+
+  it("strips any client-supplied value before trusting it", () => {
+    const deleteCall = middleware.indexOf("requestHeaders.delete(TRUSTED_USER_HEADER)");
+    const setCall = middleware.indexOf("requestHeaders.set(TRUSTED_USER_HEADER");
+    expect(deleteCall, "must strip the incoming header").toBeGreaterThan(-1);
+    expect(setCall, "must set it only after verifying the user").toBeGreaterThan(deleteCall);
+  });
+
+  it("only sets the header once a real user was verified", () => {
+    const setCall = middleware.indexOf("requestHeaders.set(TRUSTED_USER_HEADER");
+    const guard = middleware.lastIndexOf("if (user)", setCall);
+    expect(guard, "the set call must be guarded on a verified user").toBeGreaterThan(-1);
+  });
+
+  it("falls back to a real auth.getUser() call when the header is absent", () => {
+    const fn = server.slice(server.indexOf("getCurrentUser = cache"));
+    expect(fn).toMatch(/if \(trustedId\) return/);
+    expect(fn).toMatch(/auth\.getUser\(\)/);
+  });
+});
+
 describe("route protection", () => {
   const middleware = read("src/middleware.ts");
 

@@ -11,8 +11,19 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PRIVATE = ["/dashboard", "/trade", "/portfolio", "/leagues", "/profile", "/share", "/admin", "/welcome"];
 
+// Carries the id this middleware already verified via a real auth.getUser()
+// call forward to the render tree, so getCurrentUser() (lib/supabase/server.ts)
+// can skip paying for that same network round trip a second time. Safe only
+// because this file is the sole writer: stripped unconditionally from every
+// incoming request below, before being set from the verified `user`, so a
+// client cannot forge it to impersonate another id.
+const TRUSTED_USER_HEADER = "x-stockoff-verified-uid";
+
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete(TRUSTED_USER_HEADER);
+
+  const cookiesToSet: { name: string; value: string; options?: CookieOptions }[] = [];
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,10 +33,7 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll: (toSet: { name: string; value: string; options?: CookieOptions }[]) => {
           toSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          toSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
+          cookiesToSet.push(...toSet);
         },
       },
     },
@@ -52,6 +60,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (user) requestHeaders.set(TRUSTED_USER_HEADER, user.id);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
   return response;
 }
 
